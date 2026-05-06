@@ -1,0 +1,60 @@
+name: Build Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: yarn
+          cache-dependency-path: chat2db-client/yarn.lock
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+          cache: maven
+
+      - name: Build frontend
+        run: |
+          cd chat2db-client
+          yarn install --frozen-lockfile
+          yarn run build:web:prod --app_version=local --app_port=10822
+
+      - name: Copy frontend assets
+        run: |
+          mkdir -p chat2db-server/chat2db-server-start/src/main/resources/static/front
+          mkdir -p chat2db-server/chat2db-server-start/src/main/resources/thymeleaf
+          cp -r chat2db-client/dist/. chat2db-server/chat2db-server-start/src/main/resources/static/front/
+          cp chat2db-client/dist/index.html chat2db-server/chat2db-server-start/src/main/resources/thymeleaf/
+
+      - name: Build backend
+        run: mvn clean package -B -Dmaven.test.skip=true -f chat2db-server/pom.xml
+
+      - name: Upload server jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat2db-server-start
+          path: chat2db-server/chat2db-server-start/target/chat2db-server-start.jar
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat2db-client-dist
+          path: chat2db-client/dist
