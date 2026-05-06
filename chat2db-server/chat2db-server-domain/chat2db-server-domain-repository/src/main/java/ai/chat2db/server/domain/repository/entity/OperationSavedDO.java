@@ -88,4 +88,9 @@ public class OperationSavedDO implements Serializable {
      * operation type
      */
     private String operationType;
+
+    /**
+     * AI context selected tables
+     */
+    private String selectedTables;
 }

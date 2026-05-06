@@ -8,6 +8,7 @@ export interface ICreateConsoleParams {
   databaseType: DatabaseTypeCode;
   databaseName?: string;
   schemaName?: string;
+  selectedTables?: string;
   operationType?: WorkspaceTabType;
   loadSQL?: () => Promise<string>;
 }
@@ -22,6 +23,7 @@ export interface IConsole {
   type?: DatabaseTypeCode; // 数据库类型
   databaseName?: string; // 数据库名称
   schemaName?: string; // schema名称
+  selectedTables?: string; // AI上下文手动选择的表
   status: ConsoleStatus; // 控制台状态
   connectable: boolean; // 是否可连接
   tabOpened?: ConsoleOpenedStatus; // 控制台tab是否打开
@@ -29,4 +31,3 @@ export interface IConsole {
 }
 
 export type ICreateConsole = Omit<IConsole, 'id' | 'dataSourceName' | 'connectable'>;
-

@@ -12,6 +12,18 @@ import { addWorkspaceTab, getSavedConsoleList } from '@/pages/main/workspace/sto
 import { useWorkspaceStore } from '@/pages/main/workspace/store';
 import MenuLabel from '@/components/MenuLabel';
 
+const parseSelectedTables = (selectedTables?: string | null) => {
+  if (!selectedTables) {
+    return [];
+  }
+  try {
+    const tables = JSON.parse(selectedTables);
+    return Array.isArray(tables) ? tables : [];
+  } catch (error) {
+    return [];
+  }
+};
+
 const SaveList = () => {
   const [searching, setSearching] = useState<boolean>(false);
   const inputRef = useRef<any>();
@@ -66,6 +78,7 @@ const SaveList = () => {
           databaseType: item.type,
           databaseName: item.databaseName,
           schemaName: item.schemaName,
+          selectedTables: parseSelectedTables(item.selectedTables),
           status: item.status,
           ddl: item.ddl,
           connectable: item.connectable,

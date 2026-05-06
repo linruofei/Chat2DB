@@ -40,7 +40,7 @@ const emptyOption = {
 
 const SelectBoundInfo = memo((props: IProps) => {
   const { boundInfo, setBoundInfo } = props;
-  const { setSelectedTables, setTableNameList, isActive } = useContext(IntelligentEditorContext);
+  const { selectedTables, setSelectedTables, setTableNameList, isActive } = useContext(IntelligentEditorContext);
   const connectionList = useConnectionStore((state) => state.connectionList);
   const [databaseNameList, setDatabaseNameList] = useState<IOption<string>[]>([emptyOption]);
   const [schemaList, setSchemaList] = useState<IOption<string>[]>([emptyOption]);
@@ -184,7 +184,9 @@ const SelectBoundInfo = memo((props: IProps) => {
         boundInfo.databaseName,
         boundInfo.schemaName,
       );
-      setSelectedTables(tableNameListTemp.slice(0, 1));
+      if (tableNameListTemp.length) {
+        setSelectedTables((tables) => tables.filter((table) => tableNameListTemp.includes(table)));
+      }
     }
   }, [allTableList, isActive]);
 

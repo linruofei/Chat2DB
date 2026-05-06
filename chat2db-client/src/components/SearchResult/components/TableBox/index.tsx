@@ -61,6 +61,13 @@ interface IViewTableCellData {
   rowId: string;
 }
 
+interface ISelectedCellRange {
+  startColId: string;
+  startRowId: string;
+  endColId: string;
+  endRowId: string;
+}
+
 export interface IUpdateData {
   oldDataList?: Array<string | null>;
   dataList?: Array<string | null>;
@@ -94,6 +101,13 @@ const preCode = '$$chat2db_';
 
 // No列的code
 const colNoCode = `${preCode}0No.`;
+const noColumnWidth = 60;
+const minAutoColumnWidth = 60;
+const maxAutoColumnWidth = 160;
+const cellHorizontalPadding = 28;
+const asciiCharacterWidth = 8;
+const fullWidthCharacterWidth = 14;
+const columnWidthSampleSize = 200;
 
 const defaultPaginationConfig: IResultConfig = {
   pageNo: 1,
@@ -101,6 +115,44 @@ const defaultPaginationConfig: IResultConfig = {
   total: 0,
   hasNextPage: true,
 };
+
+function getCellValueText(value: string | null | undefined) {
+  if (value === null) {
+    return '<null>';
+  }
+
+  if (value === undefined || value === '') {
+    return '';
+  }
+
+  return String(value);
+}
+
+function measureTextWidth(text: string) {
+  return Array.from(text).reduce((totalWidth, char) => {
+    return totalWidth + (char.charCodeAt(0) > 255 ? fullWidthCharacterWidth : asciiCharacterWidth);
+  }, 0);
+}
+
+function getAdaptiveColumnWidth(headerName: string, values: Array<string | null | undefined>) {
+  const maxTextWidth = [headerName, ...values].reduce((maxWidth, value) => {
+    return Math.max(maxWidth, measureTextWidth(getCellValueText(value)));
+  }, 0);
+
+  return Math.max(minAutoColumnWidth, Math.min(maxAutoColumnWidth, maxTextWidth + cellHorizontalPadding));
+}
+
+function getAdaptiveColumnResizeSizes(queryResultData: IManageResultData) {
+  const dataList = queryResultData.dataList || [];
+  return (queryResultData.headerList || []).map((header, colIndex) => {
+    if (header.dataType === TableDataType.CHAT2DB_ROW_NUMBER) {
+      return noColumnWidth;
+    }
+
+    const sampleValues = dataList.slice(0, columnWidthSampleSize).map((row) => row?.[colIndex]);
+    return getAdaptiveColumnWidth(header.name, sampleValues);
+  });
+}
 
 export const TableContext = React.createContext({} as any);
 
@@ -146,6 +198,11 @@ export default function TableBox(props: ITableProps) {
   const [tableLoading, setTableLoading] = useState<boolean>(false);
   // 列宽数组
   const [columnResize, setColumnResize] = useState<number[]>([0]);
+  const [selectedCellRange, setSelectedCellRange] = useState<ISelectedCellRange | null>(null);
+  const selectingCellRef = React.useRef<ISelectedCellRange | null>(null);
+  const hasDraggedSelectedCellRef = React.useRef<boolean>(false);
+  const selectingRowRef = React.useRef<string | null>(null);
+  const hasDraggedSelectedRowRef = React.useRef<boolean>(false);
   // 表格的宽度
   // const [tableBoxWidth, setTableBoxWidth] = useState<number>(0);
 
@@ -184,6 +241,8 @@ export default function TableBox(props: ITableProps) {
   }, [queryResultData]);
 
   useEffect(() => {
+    setSelectedCellRange(null);
+    selectingCellRef.current = null;
     // 每次dataList变化，都需要重新计算tableData
     if (!columns?.length) {
       setTableData([]);
@@ -198,6 +257,65 @@ export default function TableBox(props: ITableProps) {
       setOldDataList(queryResultData.dataList);
     }
   }, [queryResultData.dataList]);
+
+  useEffect(() => {
+    setColumnResize(getAdaptiveColumnResizeSizes(queryResultData));
+  }, [queryResultData.headerList, queryResultData.dataList]);
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      selectingCellRef.current = null;
+      selectingRowRef.current = null;
+    };
+
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleSelectedCellKeyDown = (event: KeyboardEvent) => {
+      if (!selectedCellRange) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        setSelectedCellRange(null);
+        setCurOperationRowNo(null);
+        setFocusedContent(null);
+        return;
+      }
+
+      if (event.key.toLowerCase() === 'c' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        tableCopy(getSelectedCellData(selectedCellRange));
+      }
+    };
+
+    document.addEventListener('keydown', handleSelectedCellKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleSelectedCellKeyDown);
+    };
+  }, [selectedCellRange, tableData, columns]);
+
+  useEffect(() => {
+    const handleSelectedRowKeyDown = (event: KeyboardEvent) => {
+      if (!curOperationRowNo) {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        setCurOperationRowNo(null);
+        setFocusedContent(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleSelectedRowKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleSelectedRowKeyDown);
+    };
+  }, [curOperationRowNo]);
 
   // 导出sql的菜单项
   const exportDropdownItems: MenuProps['items'] = useMemo(
@@ -284,6 +402,17 @@ export default function TableBox(props: ITableProps) {
   }
 
   const handleClickTableItem = (colId, rowId, value, isEditing) => {
+    if (hasDraggedSelectedCellRef.current) {
+      hasDraggedSelectedCellRef.current = false;
+      return;
+    }
+
+    if (!isEditing && selectedCellRange && isSelectedCell(rowId, colId)) {
+      setFocusedContent(getSelectedCellData(selectedCellRange));
+      return;
+    }
+
+    setSelectedCellRange(null);
     // 1. 如果当前单元格正在编辑，则不需要再次编辑
     // 2. 如果当前单元格正在编辑，则不需要聚焦
     if (editingCell?.[0] === colId && editingCell?.[1] === rowId && editingCell?.[2]) {
@@ -309,6 +438,136 @@ export default function TableBox(props: ITableProps) {
     }
   };
 
+  const getDataColumnCodes = () => {
+    return columns.filter((column) => column.code !== colNoCode).map((column) => column.code as string);
+  };
+
+  const getSelectedCellBound = (range: ISelectedCellRange) => {
+    const rowIndexes = [range.startRowId, range.endRowId].map((rowId) =>
+      tableData.findIndex((rowData) => rowData[colNoCode] === rowId),
+    );
+    const colCodes = getDataColumnCodes();
+    const colIndexes = [range.startColId, range.endColId].map((colId) => colCodes.indexOf(colId));
+
+    return {
+      startRowIndex: Math.min(...rowIndexes),
+      endRowIndex: Math.max(...rowIndexes),
+      startColIndex: Math.min(...colIndexes),
+      endColIndex: Math.max(...colIndexes),
+      colCodes,
+    };
+  };
+
+  const getSelectedCellData = (range: ISelectedCellRange) => {
+    const { startRowIndex, endRowIndex, startColIndex, endColIndex, colCodes } = getSelectedCellBound(range);
+
+    if (startRowIndex < 0 || startColIndex < 0) {
+      return [[]];
+    }
+
+    return tableData.slice(startRowIndex, endRowIndex + 1).map((rowData) => {
+      return colCodes.slice(startColIndex, endColIndex + 1).map((colId) => rowData[colId]);
+    });
+  };
+
+  const isSelectedCell = (rowId: string, colId: string) => {
+    if (!selectedCellRange || colId === colNoCode) {
+      return false;
+    }
+
+    const { startRowIndex, endRowIndex, startColIndex, endColIndex, colCodes } =
+      getSelectedCellBound(selectedCellRange);
+    const rowIndex = tableData.findIndex((rowData) => rowData[colNoCode] === rowId);
+    const colIndex = colCodes.indexOf(colId);
+
+    return rowIndex >= startRowIndex && rowIndex <= endRowIndex && colIndex >= startColIndex && colIndex <= endColIndex;
+  };
+
+  const handleMouseDownTableCell = (colId: string, rowId: string, value: any, event: React.MouseEvent) => {
+    if (event.button !== 0 || colId === colNoCode) {
+      return;
+    }
+
+    selectingCellRef.current = {
+      startColId: colId,
+      startRowId: rowId,
+      endColId: colId,
+      endRowId: rowId,
+    };
+    hasDraggedSelectedCellRef.current = false;
+    setFocusedContent(value);
+  };
+
+  const handleMouseEnterTableCell = (colId: string, rowId: string) => {
+    const range = selectingCellRef.current;
+    if (!range || colId === colNoCode) {
+      return;
+    }
+
+    if (range.endColId === colId && range.endRowId === rowId) {
+      return;
+    }
+
+    const nextRange = {
+      ...range,
+      endColId: colId,
+      endRowId: rowId,
+    };
+    selectingCellRef.current = nextRange;
+    hasDraggedSelectedCellRef.current = true;
+    setSelectedCellRange(nextRange);
+    setCurOperationRowNo(null);
+    setEditingCell(null);
+    setFocusedContent(getSelectedCellData(nextRange));
+  };
+
+  const getSelectedRowIds = (startRowId: string, endRowId: string) => {
+    const rowIndexes = [startRowId, endRowId].map((rowId) =>
+      tableData.findIndex((rowData) => rowData[colNoCode] === rowId),
+    );
+
+    if (rowIndexes.some((index) => index < 0)) {
+      return [];
+    }
+
+    const startIndex = Math.min(...rowIndexes);
+    const endIndex = Math.max(...rowIndexes);
+    return tableData.slice(startIndex, endIndex + 1).map((rowData) => rowData[colNoCode]!);
+  };
+
+  const getSelectedRowData = (rowIds: string[]) => {
+    const selectedRows = tableData.filter((rowData) => rowIds.includes(rowData[colNoCode]!));
+    return selectedRows.map((rowData) => {
+      const data = lodash.cloneDeep(rowData);
+      delete data[colNoCode];
+      return Object.keys(data).map((colId) => data[colId]);
+    });
+  };
+
+  const handleMouseDownRowNo = (rowId: string, event: React.MouseEvent) => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    selectingRowRef.current = rowId;
+    hasDraggedSelectedRowRef.current = false;
+  };
+
+  const handleMouseEnterRowNo = (rowId: string) => {
+    const startRowId = selectingRowRef.current;
+    if (!startRowId || startRowId === rowId) {
+      return;
+    }
+
+    const selectedRowIds = getSelectedRowIds(startRowId, rowId);
+    selectingCellRef.current = null;
+    hasDraggedSelectedRowRef.current = true;
+    setSelectedCellRange(null);
+    setEditingCell(null);
+    setCurOperationRowNo(selectedRowIds);
+    setFocusedContent(getSelectedRowData(selectedRowIds));
+  };
+
   // 渲染单元格的值
   const renderTableCellValue = (value) => {
     if (value === null) {
@@ -327,6 +586,10 @@ export default function TableBox(props: ITableProps) {
   const tableCellStyle = (value, rowId, colId) => {
     // 单元格的基础样式
     const styleList = [styles.tableItem];
+    if (isSelectedCell(rowId, colId)) {
+      styleList.push(styles.tableItemSelected);
+      return classnames(...styleList);
+    }
     // 如果当前行中的单元格正在聚焦或编辑
     if (editingCell?.[1] === rowId) {
       // 设置正在编辑或聚焦的单元格所在行的样式为高亮
@@ -591,6 +854,12 @@ export default function TableBox(props: ITableProps) {
   });
 
   const handelRowNoClick = (rowId: string) => {
+    if (hasDraggedSelectedRowRef.current) {
+      hasDraggedSelectedRowRef.current = false;
+      return;
+    }
+
+    setSelectedCellRange(null);
     multipleSelect(rowId);
     setEditingCell(null);
     // const newRowData = tableData.find((item) => item[colNoCode] === rowId)!;
@@ -635,6 +904,8 @@ export default function TableBox(props: ITableProps) {
                 data-chat2db-general-can-copy-element
                 data-chat2db-edit-table-data-can-paste
                 data-chat2db-edit-table-data-can-right-click
+                onMouseDown={handleMouseDownRowNo.bind(null, rowId)}
+                onMouseEnter={handleMouseEnterRowNo.bind(null, rowId)}
                 onClick={() => {
                   handelRowNoClick(rowId);
                 }}
@@ -666,6 +937,8 @@ export default function TableBox(props: ITableProps) {
               data-chat2db-edit-table-data-can-paste
               data-chat2db-edit-table-data-can-right-click
               className={tableCellStyle(value, rowId, colId)}
+              onMouseDown={handleMouseDownTableCell.bind(null, colId, rowId, value)}
+              onMouseEnter={handleMouseEnterTableCell.bind(null, colId, rowId)}
               onClick={handleClickTableItem.bind(null, colId, rowId, value, false)}
               onDoubleClick={handleClickTableItem.bind(null, colId, rowId, value, true)}
               onContextMenu={handleClickTableItem.bind(null, colId, rowId, value, false)}
@@ -695,7 +968,17 @@ export default function TableBox(props: ITableProps) {
         features: { sortable: isNumber ? compareStrings : true },
       };
     });
-  }, [queryResultData.headerList, editingCell, editingData, curOperationRowNo, oldDataList]);
+  }, [
+    queryResultData.headerList,
+    editingCell,
+    editingData,
+    curOperationRowNo,
+    oldDataList,
+    oldTableData,
+    selectedCellRange,
+    tableData,
+    updateData,
+  ]);
 
   const { updateTableData, handleCreateData, handleDeleteData } = useCurdTableData({
     tableData,
@@ -740,8 +1023,7 @@ export default function TableBox(props: ITableProps) {
         maxSize: 1080,
         sizes: columnResize,
         onChangeSizes: (sizes) => {
-          sizes[0] = 0;
-          setColumnResize(sizes);
+          setColumnResize(sizes.map((size, index) => (index === 0 ? noColumnWidth : size)));
         },
       }),
     );
@@ -869,6 +1151,13 @@ export default function TableBox(props: ITableProps) {
     },
   };
 
+  const copySelectedCells = {
+    key: AllSupportedMenusType.CopyCell,
+    callback: () => {
+      tableCopy(getSelectedCellData(selectedCellRange!));
+    },
+  };
+
   const setDefault = {
     key: AllSupportedMenusType.SetDefault,
     callback: () => {
@@ -930,11 +1219,15 @@ export default function TableBox(props: ITableProps) {
       }
     }
 
+    if (selectedCellRange) {
+      return [copySelectedCells];
+    }
+
     if (!curOperationRowNo && !editingCell) {
       return null;
     }
     return rightClickMenu;
-  }, [curOperationRowNo, editingCell, queryResultData]);
+  }, [curOperationRowNo, editingCell, queryResultData, selectedCellRange, tableData]);
 
   const renderContent = () => {
     const bottomStatus = (
@@ -1066,6 +1359,7 @@ export default function TableBox(props: ITableProps) {
                       components={{ EmptyContent: () => <h2>{i18n('common.text.noData')}</h2> }}
                       isStickyHead
                       stickyTop={31}
+                      stickyScrollHeight={14}
                       {...pipeline.getProps()}
                     />
                   </>

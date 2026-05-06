@@ -75,7 +75,7 @@ interface IIntelligentEditorContext {
   tableNameList: string[];
   setTableNameList: (tables: string[]) => void;
   selectedTables: string[];
-  setSelectedTables: (tables: string[]) => void;
+  setSelectedTables: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 export const IntelligentEditorContext = createContext<IIntelligentEditorContext>({} as any);
@@ -94,7 +94,7 @@ function ConsoleEditor(props: IProps, ref: ForwardedRef<IConsoleRef>) {
   const uid = useMemo(() => uuidv4(), []);
   const chatResult = useRef('');
   const editorRef = useRef<IExportRefFunction>();
-  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [selectedTables, setSelectedTables] = useState<string[]>(boundInfo.selectedTables || []);
   const [tableNameList, setTableNameList] = useState<string[]>([]);
   const [syncTableModel, setSyncTableModel] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -121,6 +121,7 @@ function ConsoleEditor(props: IProps, ref: ForwardedRef<IConsoleRef>) {
     boundInfo: props.boundInfo,
     source,
     defaultValue,
+    selectedTables,
   });
   // ---------------- new-code ----------------
 
@@ -132,6 +133,10 @@ function ConsoleEditor(props: IProps, ref: ForwardedRef<IConsoleRef>) {
   useEffect(() => {
     handleSelectTableSyncModel();
   }, [hasWhite, localStorage.getItem('syncTableModel')]);
+
+  useEffect(() => {
+    setSelectedTables(boundInfo.selectedTables || []);
+  }, [boundInfo.consoleId]);
 
   useEffect(() => {
     if (appendValue) {

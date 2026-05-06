@@ -32,6 +32,18 @@ import historyService from '@/service/history';
 
 import indexedDB from '@/indexedDB';
 
+const parseSelectedTables = (selectedTables?: string | null) => {
+  if (!selectedTables) {
+    return [];
+  }
+  try {
+    const tables = JSON.parse(selectedTables);
+    return Array.isArray(tables) ? tables : [];
+  } catch (error) {
+    return [];
+  }
+};
+
 const WorkspaceTabs = memo(() => {
   const { activeConsoleId, consoleList, workspaceTabList } = useWorkspaceStore((state) => {
     return {
@@ -62,6 +74,7 @@ const WorkspaceTabs = memo(() => {
             databaseType: item.type,
             databaseName: item.databaseName,
             schemaName: item.schemaName,
+            selectedTables: parseSelectedTables(item.selectedTables),
             status: item.status,
             ddl: item.ddl,
             connectable: item.connectable,
@@ -175,6 +188,7 @@ const WorkspaceTabs = memo(() => {
           databaseName: uniqueData?.databaseName,
           databaseType: uniqueData.databaseType,
           schemaName: uniqueData?.schemaName,
+          selectedTables: uniqueData?.selectedTables || [],
           consoleId: item.id as number,
           status: uniqueData.status,
           connectable: uniqueData.connectable,

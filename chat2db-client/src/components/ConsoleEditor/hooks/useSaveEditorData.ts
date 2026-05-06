@@ -14,23 +14,38 @@ interface IProps {
   editorRef: any;
   boundInfo: any;
   defaultValue?: string;
+  selectedTables?: string[];
 }
 
 export const useSaveEditorData = (props: IProps) => {
-  const { isActive, source, editorRef, boundInfo, defaultValue } = props;
+  const { isActive, source, editorRef, boundInfo, defaultValue, selectedTables = [] } = props;
   const timerRef = useRef<any>();
     // 上一次同步的console数据
   const lastSyncConsole = useRef<any>(defaultValue);
+  const selectedTablesRef = useRef<string[]>(selectedTables);
+  const invalidSavedConsoleIdRef = useRef<number | string | null>(null);
   const [saveStatus, setSaveStatus] = useState<ConsoleStatus>(boundInfo.status || ConsoleStatus.DRAFT);
 
+  useEffect(() => {
+    selectedTablesRef.current = selectedTables;
+  }, [selectedTables]);
+
   const saveConsole = (value?: string, noPrompting?: boolean) => {
+    if (!boundInfo.consoleId || invalidSavedConsoleIdRef.current === boundInfo.consoleId) {
+      if (!noPrompting) {
+        message.error('当前查询记录不存在，请重新新建查询后保存');
+      }
+      return;
+    }
+
     const p: any = {
       id: boundInfo.consoleId,
       status: ConsoleStatus.RELEASE,
       ddl: value,
+      selectedTables: JSON.stringify(selectedTablesRef.current),
     };
 
-    historyServer.updateSavedConsole(p).then(() => {
+    historyServer.updateSavedConsoleSilently(p).then(() => {
       getSavedConsoleList();
       indexedDB.deleteData('chat2db', 'workspaceConsoleDDL', boundInfo.consoleId!);
       lastSyncConsole.current = value;
@@ -40,6 +55,15 @@ export const useSaveEditorData = (props: IProps) => {
       }
       message.success(i18n('common.tips.saveSuccessfully'));
       timingAutoSave(ConsoleStatus.RELEASE);
+    }).catch((error) => {
+      if (String(error).includes('common.dataNotFound')) {
+        invalidSavedConsoleIdRef.current = boundInfo.consoleId;
+        if (!noPrompting) {
+          message.error('当前查询记录不存在，请重新新建查询后保存');
+        }
+      } else if (!noPrompting) {
+        message.error(i18n('common.notification.error'));
+      }
     });
   };
 

@@ -48,4 +48,9 @@ public class OperationCreateRequest extends DataSourceBaseRequest {
      * operation type
      */
     private String operationType;
+
+    /**
+     * AI context selected tables
+     */
+    private String selectedTables;
 }

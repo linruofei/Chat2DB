@@ -81,6 +81,9 @@ public class OperationServiceImpl implements OperationService {
     @Override
     public DataResult<Operation> find(Long id) {
         OperationSavedDO operationSavedDO = getMapper().selectById(id);
+        if (operationSavedDO == null) {
+            return DataResult.empty();
+        }
         List<Long> dataSourceIds = Lists.newArrayList(operationSavedDO.getDataSourceId());
         Map<Long, DataSource> dataSourceMap = getDataSourceInfo(dataSourceIds);
         Operation operation = operationConverter.do2dto(operationSavedDO);
@@ -182,4 +185,3 @@ public class OperationServiceImpl implements OperationService {
         return dataSourceMap;
     }
 }
-

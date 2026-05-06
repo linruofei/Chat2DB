@@ -21,6 +21,7 @@ export interface IBoundInfo {
   databaseType: DatabaseTypeCode;
   databaseName?: string;
   schemaName?: string;
+  selectedTables?: string[];
   status: ConsoleStatus;
   connectable: boolean;
   supportDatabase: boolean;

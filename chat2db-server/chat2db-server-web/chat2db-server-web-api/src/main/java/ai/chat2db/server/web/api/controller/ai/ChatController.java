@@ -462,16 +462,29 @@ public class ChatController {
      * @return
      */
     private List<FastChatMessage> getFastChatMessage(String uid, String prompt) {
-        List<FastChatMessage> messages = (List<FastChatMessage>)LocalCache.CACHE.get(uid);
+
+        Object cacheObj = LocalCache.CACHE.get(uid);
+
+        List<FastChatMessage> messages;
+
+        if (cacheObj instanceof List<?>) {
+            messages = (List<FastChatMessage>) cacheObj;
+        } else {
+            messages = Lists.newArrayList();
+        }
+
         if (CollectionUtils.isNotEmpty(messages)) {
             if (messages.size() >= contextLength) {
                 messages = messages.subList(1, contextLength);
             }
-        } else {
-            messages = Lists.newArrayList();
         }
-        FastChatMessage currentMessage = new FastChatMessage(FastChatRole.USER).setContent(prompt);
+
+        FastChatMessage currentMessage =
+                new FastChatMessage(FastChatRole.USER)
+                        .setContent(prompt);
+
         messages.add(currentMessage);
+
         return messages;
     }
 

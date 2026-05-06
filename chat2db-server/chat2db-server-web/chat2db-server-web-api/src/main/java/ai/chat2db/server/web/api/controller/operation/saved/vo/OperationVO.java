@@ -70,4 +70,9 @@ public class OperationVO {
      * operation type
      */
     private String operationType;
+
+    /**
+     * AI context selected tables
+     */
+    private String selectedTables;
 }

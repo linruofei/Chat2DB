@@ -68,4 +68,9 @@ public class OperationUpdateRequest {
      * user id
      */
     private Long userId;
+
+    /**
+     * AI context selected tables
+     */
+    private String selectedTables;
 }

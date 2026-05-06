@@ -62,4 +62,9 @@ public class OperationUpdateParam {
      * operation type
      */
     private String operationType;
+
+    /**
+     * AI context selected tables
+     */
+    private String selectedTables;
 }
