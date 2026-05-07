@@ -55,10 +55,18 @@ const connectConsole = createRequest<IConnectConsoleParams, void>('/api/connecti
 
 //表操作
 export interface ITableParams {
-  Name: string;
   dataSourceId: number;
   databaseName: string;
   schemaName?: string;
+  tableName?: string;
+  sequenceName?: string;
+}
+
+export interface IExportDdlParams {
+  dataSourceId: number;
+  databaseName: string;
+  schemaName?: string;
+  name: string;
 }
 
 export interface IExecuteTableParams {
@@ -112,7 +120,7 @@ const createTableExample = createRequest<{ dbType: DatabaseTypeCode }, string>('
 const updateTableExample = createRequest<{ dbType: DatabaseTypeCode }, string>('/api/rdb/ddl/update/example', {
   method: 'get',
 });
-const exportCreateTableSql = createRequest<ITableParams, string>('/api/rdb/ddl/export', { method: 'get' });
+const exportCreateTableSql = createRequest<IExportDdlParams, string>('/api/rdb/ddl/export', { method: 'get' });
 const executeTable = createRequest<IExecuteTableParams, string>('/api/rdb/ddl/execute', { method: 'post' });
 
 const getColumnList = createRequest<ITableParams, IColumn[]>('/api/rdb/ddl/column_list', {
@@ -154,7 +162,7 @@ export interface IExportParams extends IExecuteSqlParams {
  * 导出-表格
  */
 // const exportResultTable = createRequest<IExportParams, any>('/api/rdb/dml/export', { method: 'post' });
-const exportCreateSequenceSql = createRequest<ITableParams, string>('/api/rdb/sequence/export', { method: 'get' });
+const exportCreateSequenceSql = createRequest<IExportDdlParams, string>('/api/rdb/sequence/export', { method: 'get' });
 
 /** 获取视图列表 */
 const getViewList = createRequest<IGetTableListParams, IPageResponse<IRoutines>>('/api/rdb/view/list', {

@@ -1,18 +1,17 @@
 package ai.chat2db.spi.sql;
 
 import lombok.extern.slf4j.Slf4j;
-import org.h2.engine.ConnectionInfo;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Date;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 public class ConnectionPool {
 
     private static ConcurrentHashMap<String, ConnectInfo> CONNECTION_MAP = new ConcurrentHashMap<>();
+    private static final int CONNECTION_VALID_TIMEOUT_SECONDS = 2;
 
     static {
         new Thread(() -> {
@@ -61,62 +60,76 @@ public class ConnectionPool {
 
     public static Connection getConnection(ConnectInfo connectInfo) {
         Connection connection = connectInfo.getConnection();
+        if (isConnectionValid(connection)) {
+            log.info("get connection from local");
+            return connection;
+        }
+        closeQuietly(connection);
+        connectInfo.setConnection(null);
+        String key = connectInfo.getKey();
+        ConnectInfo lock = CONNECTION_MAP.computeIfAbsent(key, k -> connectInfo.copy());
         try {
-            if (connection != null && !connection.isClosed()) {
-                log.info("get connection from local");
-                return connection;
-            }
-            String key = connectInfo.getKey();
-            ConnectInfo lock = CONNECTION_MAP.computeIfAbsent(key, k -> connectInfo.copy());
-            try {
-                synchronized (lock) {
-                    connection = connectInfo.getConnection();
-                    if (connection != null && !connection.isClosed()) {
-                        log.info("get connection from local");
-                        return connection;
-                    }
+            synchronized (lock) {
+                connection = connectInfo.getConnection();
+                if (isConnectionValid(connection)) {
+                    log.info("get connection from local");
+                    return connection;
+                }
+                closeQuietly(connection);
+                connectInfo.setConnection(null);
 
-                    int n = lock.incrementRefCount();
-                    if (n == 1) {
-                        connection = lock.getConnection();
-                        if (connection != null && !connection.isClosed()) {
-                            log.info("get connection from cache");
-                            connectInfo.setConnection(connection);
-                            lock.setLastAccessTime(new Date());
-                            return connection;
-                        } else {
-                            log.info("get connection from db begin");
-                            connection = Chat2DBContext.getDBManage().getConnection(connectInfo);
-                            lock.setConnection(connection);
-                            lock.setLastAccessTime(new Date());
-                            log.info("get connection from db end");
-                        }
+                int n = lock.incrementRefCount();
+                if (n == 1) {
+                    connection = lock.getConnection();
+                    if (isConnectionValid(connection)) {
+                        log.info("get connection from cache");
                         connectInfo.setConnection(connection);
+                        lock.setLastAccessTime(new Date());
                         return connection;
                     } else {
+                        closeQuietly(connection);
+                        lock.setConnection(null);
+                        log.info("get connection from db begin");
                         connection = Chat2DBContext.getDBManage().getConnection(connectInfo);
-                        connectInfo.setConnection(connection);
-                        return connection;
+                        lock.setConnection(connection);
+                        lock.setLastAccessTime(new Date());
+                        log.info("get connection from db end");
                     }
-
-                }
-            } catch (SQLException e) {
-                log.error("get connection error", e);
-                if (connection != null && !connection.isClosed()) {
-                    connection.close();
+                    connectInfo.setConnection(connection);
+                    return connection;
+                } else {
+                    connection = Chat2DBContext.getDBManage().getConnection(connectInfo);
+                    connectInfo.setConnection(connection);
+                    return connection;
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             log.error("get connection error", e);
-            try {
-                if (connection != null && !connection.isClosed()) {
-                    connection.close();
-                }
-            } catch (Exception e1) {
-                log.error("", e1);
-            }
+            closeQuietly(connection);
         }
         return null;
+    }
+
+    private static boolean isConnectionValid(Connection connection) {
+        try {
+            return connection != null && !connection.isClosed() && connection.isValid(CONNECTION_VALID_TIMEOUT_SECONDS);
+        } catch (SQLException e) {
+            log.warn("connection validation failed", e);
+            return false;
+        }
+    }
+
+    private static void closeQuietly(Connection connection) {
+        if (connection == null) {
+            return;
+        }
+        try {
+            if (!connection.isClosed()) {
+                connection.close();
+            }
+        } catch (SQLException e) {
+            log.warn("close invalid connection error", e);
+        }
     }
 
     public static void close(ConnectInfo connectInfo) {

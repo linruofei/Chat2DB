@@ -18,10 +18,12 @@ export default memo<IProps>((props) => {
 
   useEffect(() => {
     if(data){
+      const { tableName, name, ...restParams } = data;
       sqlServer
       .exportCreateTableSql({
-        ...data,
-      } as any)
+        ...restParams,
+        name: name || tableName,
+      })
       .then((res) => {
         setSql(res);
       });
