@@ -1,7 +1,7 @@
 import { intelliSenseKeyword, registerIntelliSenseKeyword, resetSenseKeyword } from './keyword';
 import { intelliSenseDatabase, registerIntelliSenseDatabase, resetSenseDatabase } from './database';
 import { intelliSenseTable, registerIntelliSenseTable, resetSenseTable } from './table';
-import { intelliSenseField, registerIntelliSenseField, resetSenseField } from './field';
+import { addIntelliSenseField, intelliSenseField, registerIntelliSenseField, resetSenseField } from './field';
 import { intelliSenseView, registerIntelliSenseView, resetSenseView } from './view';
 export {
   intelliSenseKeyword,
@@ -15,6 +15,7 @@ export {
   resetSenseTable,
   intelliSenseField,
   registerIntelliSenseField,
+  addIntelliSenseField,
   resetSenseField,
   intelliSenseView,
   registerIntelliSenseView,

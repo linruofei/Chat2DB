@@ -19,9 +19,9 @@ export const resetSenseField = () => {
 
 const addIntelliSenseField = async (props: {
   tableName: string;
-  dataSourceId: number;
-  databaseName: string;
-  schemaName?: string;
+  dataSourceId?: number;
+  databaseName?: string | null;
+  schemaName?: string | null;
 }) => {
   const { tableName, dataSourceId, databaseName, schemaName } = props;
 

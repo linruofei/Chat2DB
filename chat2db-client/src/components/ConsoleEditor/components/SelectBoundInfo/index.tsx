@@ -15,6 +15,7 @@ import {
   registerIntelliSenseKeyword,
   registerIntelliSenseTable,
   registerIntelliSenseDatabase,
+  addIntelliSenseField,
   resetSenseKeyword,
   resetSenseTable,
   resetSenseDatabase,
@@ -189,6 +190,37 @@ const SelectBoundInfo = memo((props: IProps) => {
       }
     }
   }, [allTableList, isActive]);
+
+  useEffect(() => {
+    if (!isActive || boundInfo.connectable === false || !allTableList.length || !selectedTables.length) {
+      return;
+    }
+
+    const tableNameSet = new Set(allTableList.map((t) => t.name));
+    const preloadTables = selectedTables.filter((table) => tableNameSet.has(table));
+    if (!preloadTables.length) {
+      return;
+    }
+
+    void Promise.all(
+      preloadTables.map((tableName) =>
+        addIntelliSenseField({
+          tableName,
+          dataSourceId: boundInfo.dataSourceId,
+          databaseName: boundInfo.databaseName,
+          schemaName: boundInfo.schemaName,
+        }),
+      ),
+    ).catch(() => undefined);
+  }, [
+    allTableList,
+    selectedTables,
+    isActive,
+    boundInfo.connectable,
+    boundInfo.dataSourceId,
+    boundInfo.databaseName,
+    boundInfo.schemaName,
+  ]);
 
   // 注册数据库名
   useEffect(() => {
