@@ -129,7 +129,7 @@ const ChatInput = (props: IProps) => {
         disabled={props.disabled}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        bordered={false}
+        variant="borderless"
         placeholder={i18n('workspace.ai.input.placeholder')}
         onPressEnter={onPressEnter}
         suffix={renderSuffix()}

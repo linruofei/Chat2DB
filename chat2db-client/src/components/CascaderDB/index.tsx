@@ -155,7 +155,7 @@ function CascaderDB(props: IProps) {
   return (
     <div className={cs(props.className, styles.cascaderDB)}>
       <Select
-        bordered={false}
+        variant="borderless"
         placeholder="请选择链接"
         showSearch
         popupMatchSelectWidth={false}
@@ -174,7 +174,7 @@ function CascaderDB(props: IProps) {
         )}
       />
       <Select
-        bordered={false}
+        variant="borderless"
         placeholder="请选择数据库"
         showSearch
         popupMatchSelectWidth={false}
@@ -194,7 +194,7 @@ function CascaderDB(props: IProps) {
       />
       {!!schemaOptions.length && (
         <Select
-          bordered={false}
+          variant="borderless"
           placeholder="请选择Schema"
           showSearch
           popupMatchSelectWidth={false}

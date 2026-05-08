@@ -2,7 +2,49 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import sqlService from '@/service/sql';
 import i18n from '@/i18n';
 
-let fieldList: Record<string, Array<{ name: string; tableName: string }>> = {};
+const fieldList: Record<string, Array<{ name: string; tableName: string }>> = {};
+const fieldRequestMap: Record<string, Promise<Array<{ name: string; tableName: string }>>> = {};
+let activeFieldCacheKeys = new Set<string>();
+
+const getFieldCacheKey = (props: {
+  tableName: string;
+  dataSourceId?: number;
+  databaseName?: string | null;
+  schemaName?: string | null;
+}) => {
+  const { tableName, dataSourceId, databaseName, schemaName } = props;
+  return [dataSourceId || '', databaseName || '', schemaName || '', tableName].join('|');
+};
+
+const loadFieldList = async (props: {
+  tableName: string;
+  dataSourceId?: number;
+  databaseName?: string | null;
+  schemaName?: string | null;
+}) => {
+  const { tableName, dataSourceId, databaseName, schemaName } = props;
+  const cacheKey = getFieldCacheKey(props);
+
+  if (fieldList[cacheKey]) {
+    return fieldList[cacheKey];
+  }
+
+  if (!fieldRequestMap[cacheKey]) {
+    fieldRequestMap[cacheKey] = sqlService.getAllFieldByTable({
+      dataSourceId,
+      databaseName,
+      schemaName,
+      tableName,
+    });
+  }
+
+  try {
+    fieldList[cacheKey] = await fieldRequestMap[cacheKey];
+    return fieldList[cacheKey];
+  } finally {
+    delete fieldRequestMap[cacheKey];
+  }
+};
 
 /** 当前库下的表 */
 let intelliSenseField = monaco.languages.registerCompletionItemProvider('sql', {
@@ -23,17 +65,8 @@ const addIntelliSenseField = async (props: {
   databaseName?: string | null;
   schemaName?: string | null;
 }) => {
-  const { tableName, dataSourceId, databaseName, schemaName } = props;
-
-  if (!fieldList[tableName]) {
-    const data = await sqlService.getAllFieldByTable({
-      dataSourceId,
-      databaseName,
-      schemaName,
-      tableName,
-    });
-    fieldList[tableName] = data;
-  }
+  activeFieldCacheKeys.add(getFieldCacheKey(props));
+  await loadFieldList(props);
 };
 
 function checkFieldContext(text) {
@@ -51,7 +84,7 @@ function checkFieldContext(text) {
 
 const registerIntelliSenseField = (tableList: string[], dataSourceId, databaseName, schemaName) => {
   resetSenseField();
-  fieldList = {};
+  activeFieldCacheKeys = new Set();
   intelliSenseField = monaco.languages.registerCompletionItemProvider('sql', {
     triggerCharacters: [' ', ',', '.', '('],
     provideCompletionItems: async (model, position) => {
@@ -74,18 +107,19 @@ const registerIntelliSenseField = (tableList: string[], dataSourceId, databaseNa
       if (!word) {
         return; // 如果没有匹配到，直接返回
       }
-      if (word && tableList.includes(word) && !fieldList[word]) {
-        const data = await sqlService.getAllFieldByTable({
+      if (word && tableList.includes(word)) {
+        const fieldParams = {
           dataSourceId,
           databaseName,
           schemaName,
           tableName: word,
-        });
-        fieldList[word] = data;
+        };
+        activeFieldCacheKeys.add(getFieldCacheKey(fieldParams));
+        await loadFieldList(fieldParams);
       }
 
-      const suggestions: monaco.languages.CompletionItem[] = Object.keys(fieldList).reduce((acc, cur) => {
-        const arr = fieldList[cur].map((fieldObj) => ({
+      const suggestions: monaco.languages.CompletionItem[] = Array.from(activeFieldCacheKeys).reduce((acc, cur) => {
+        const arr = (fieldList[cur] || []).map((fieldObj) => ({
           label: {
             label: fieldObj.name,
             detail: `(${fieldObj.tableName})`,

@@ -242,7 +242,8 @@ const Tree = (props: IProps) => {
     if (node.children?.length) {
       return node.children;
     }
-    const treeNodeConfig: ITreeConfigItem = treeConfig[node.pretendNodeType || node.treeNodeType];
+    const currentNodeType = node.pretendNodeType || node.treeNodeType;
+    const treeNodeConfig: ITreeConfigItem = treeConfig[currentNodeType];
     if (!treeNodeConfig?.getChildren) {
       return node.children || [];
     }
@@ -269,6 +270,10 @@ const Tree = (props: IProps) => {
     };
 
     const children = await loadPage(1);
+    if (!children.length && treeNodeConfig.next) {
+      node.pretendNodeType = treeNodeConfig.next;
+      return loadNodeChildren(_treeData, node);
+    }
     insertTreeData(_treeData, node.uuid!, children);
     setTreeData(cloneDeep(_treeData));
     return node.children || [];
@@ -305,7 +310,18 @@ const Tree = (props: IProps) => {
     );
 
     if (!schemaNodes.length) {
-      return false;
+      const tablesNodes = findTreeNodes(
+        schemaSource,
+        (node) =>
+          node.treeNodeType === TreeNodeType.TABLES &&
+          node.extraParams?.dataSourceId === target.dataSourceId &&
+          (!target.databaseName || !node.extraParams?.databaseName || node.extraParams?.databaseName === target.databaseName),
+      );
+      for (const tablesNode of tablesNodes) {
+        await loadNodeChildren(treeData, tablesNode);
+      }
+      setTreeData(cloneDeep(treeData));
+      return true;
     }
 
     for (const schemaNode of schemaNodes) {
