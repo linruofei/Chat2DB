@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useMemo, useState, createContext, useContext } from 'react';
+import React, { memo, useEffect, useMemo, useState, createContext, useContext, useRef } from 'react';
 import styles from './index.less';
 import classnames from 'classnames';
 import Iconfont from '@/components/Iconfont';
@@ -7,7 +7,8 @@ import { ITreeNode } from '@/typings';
 import { TreeNodeType, databaseMap } from '@/constants';
 import { treeConfig, switchIcon, ITreeConfigItem } from './treeConfig';
 import { useCommonStore } from '@/store/common';
-import { setCurrentWorkspaceGlobalExtend } from '@/pages/main/workspace/store/common';
+import { requestPreloadTreeTables, setCurrentWorkspaceGlobalExtend } from '@/pages/main/workspace/store/common';
+import { useWorkspaceStore } from '@/pages/main/workspace/store';
 import LoadingGracile from '@/components/Loading/LoadingGracile';
 import { setFocusId, setFocusTreeNode, useTreeStore, clearTreeStore } from './treeStore';
 import { useGetRightClickMenu } from './hooks/useGetRightClickMenu';
@@ -107,8 +108,71 @@ function searchTree(treeData: ITreeNode[], searchValue: string): ITreeNode[] {
 const itemHeight = 26; // 每个 item 的高度
 const paddingCount = 2;
 
+const findTreeNode = (
+  treeData: ITreeNode[] | null | undefined,
+  predicate: (node: ITreeNode) => boolean,
+): ITreeNode | null => {
+  if (!treeData) {
+    return null;
+  }
+  for (let i = 0; i < treeData.length; i++) {
+    if (predicate(treeData[i])) {
+      return treeData[i];
+    }
+    const childResult = findTreeNode(treeData[i].children, predicate);
+    if (childResult) {
+      return childResult;
+    }
+  }
+  return null;
+};
+
+const findTreeNodes = (
+  treeData: ITreeNode[] | null | undefined,
+  predicate: (node: ITreeNode) => boolean,
+  result: ITreeNode[] = [],
+): ITreeNode[] => {
+  if (!treeData) {
+    return result;
+  }
+  treeData.forEach((item) => {
+    if (predicate(item)) {
+      result.push(item);
+    }
+    findTreeNodes(item.children, predicate, result);
+  });
+  return result;
+};
+
+const insertTreeData = (_treeData: ITreeNode[], uuid: string, data: ITreeNode[] | null): ITreeNode | null => {
+  let result: ITreeNode | null = null;
+  for (let i = 0; i < _treeData?.length; i++) {
+    if (_treeData[i].uuid === uuid) {
+      result = _treeData[i];
+      if (data) {
+        data.forEach((item: ITreeNode) => {
+          item.parentNode = result!;
+        });
+        result.children = [...(result.children || []), ...(data || [])];
+      } else {
+        result.children = null;
+      }
+      break;
+    } else if (_treeData[i].children) {
+      result = insertTreeData(_treeData[i].children!, uuid, data);
+      if (result) {
+        break;
+      }
+    }
+  }
+  return result;
+};
+
 const Tree = (props: IProps) => {
   const { className, treeData: outerTreeData, searchValue } = props;
+  const preloadTreeTablesTarget = useWorkspaceStore((state) => state.preloadTreeTablesTarget);
+  const handledPreloadRequestIdRef = useRef<number | null>(null);
+  const processingPreloadRequestIdRef = useRef<number | null>(null);
   const [treeData, setTreeData] = useState<ITreeNode[] | null>(null);
   const [smoothTreeData, setSmoothTreeData] = useState<ITreeNode[]>([]);
   const [searchTreeData, setSearchTreeData] = useState<ITreeNode[] | null>(null); // 搜索结果
@@ -173,6 +237,110 @@ const Tree = (props: IProps) => {
       setSearchTreeData(null);
     }
   }, [searchValue]);
+
+  const loadNodeChildren = async (_treeData: ITreeNode[], node: ITreeNode) => {
+    if (node.children?.length) {
+      return node.children;
+    }
+    const treeNodeConfig: ITreeConfigItem = treeConfig[node.pretendNodeType || node.treeNodeType];
+    if (!treeNodeConfig?.getChildren) {
+      return node.children || [];
+    }
+
+    insertTreeData(_treeData, node.uuid!, null);
+
+    const loadPage = async (pageNo: number, result: ITreeNode[] = []): Promise<ITreeNode[]> => {
+      const res: any = await treeNodeConfig.getChildren?.({
+        ...node.extraParams,
+        extraParams: {
+          ...node.extraParams,
+        },
+        refresh: false,
+        pageNo,
+      });
+      if (res?.data) {
+        const nextResult = [...result, ...(res.data || [])];
+        if (res.hasNextPage) {
+          return loadPage(res.pageNo + 1, nextResult);
+        }
+        return nextResult;
+      }
+      return Array.isArray(res) ? res : result;
+    };
+
+    const children = await loadPage(1);
+    insertTreeData(_treeData, node.uuid!, children);
+    setTreeData(cloneDeep(_treeData));
+    return node.children || [];
+  };
+
+  const preloadTablesForTarget = async () => {
+    if (!treeData || !preloadTreeTablesTarget) {
+      return false;
+    }
+
+    const target = preloadTreeTablesTarget;
+    const databaseNode = target.databaseName
+      ? findTreeNode(
+          treeData,
+          (node) =>
+            node.treeNodeType === TreeNodeType.DATABASE &&
+            node.extraParams?.dataSourceId === target.dataSourceId &&
+            node.name === target.databaseName,
+        )
+      : null;
+
+    if (databaseNode) {
+      await loadNodeChildren(treeData, databaseNode);
+    }
+
+    const schemaSource = databaseNode?.children || treeData;
+    const schemaNodes = findTreeNodes(
+      schemaSource,
+      (node) =>
+        node.treeNodeType === TreeNodeType.SCHEMAS &&
+        node.extraParams?.dataSourceId === target.dataSourceId &&
+        (!target.databaseName || !node.extraParams?.databaseName || node.extraParams?.databaseName === target.databaseName) &&
+        (!target.schemaName || node.extraParams?.schemaName === target.schemaName || node.name === target.schemaName),
+    );
+
+    if (!schemaNodes.length) {
+      return false;
+    }
+
+    for (const schemaNode of schemaNodes) {
+      await loadNodeChildren(treeData, schemaNode);
+      const tablesNode = schemaNode.children?.find((item) => item.treeNodeType === TreeNodeType.TABLES);
+      if (tablesNode) {
+        await loadNodeChildren(treeData, tablesNode);
+      }
+    }
+    setTreeData(cloneDeep(treeData));
+    return true;
+  };
+
+  useEffect(() => {
+    if (
+      !preloadTreeTablesTarget ||
+      handledPreloadRequestIdRef.current === preloadTreeTablesTarget.requestId ||
+      processingPreloadRequestIdRef.current === preloadTreeTablesTarget.requestId ||
+      !treeData
+    ) {
+      return;
+    }
+    processingPreloadRequestIdRef.current = preloadTreeTablesTarget.requestId;
+    preloadTablesForTarget()
+      .then((handled) => {
+        if (handled) {
+          handledPreloadRequestIdRef.current = preloadTreeTablesTarget.requestId;
+        }
+      })
+      .finally(() => {
+        if (processingPreloadRequestIdRef.current === preloadTreeTablesTarget.requestId) {
+          processingPreloadRequestIdRef.current = null;
+        }
+      });
+  }, [preloadTreeTablesTarget, treeData]);
 
   return (
     <LoadingContent isLoading={!treeData} className={classnames(className)}>
@@ -351,6 +519,16 @@ const TreeNode = memo((props: TreeNodeIProps) => {
       databaseName: treeNodeData.extraParams?.databaseName,
       schemaName: treeNodeData.extraParams?.schemaName,
     });
+
+    if (treeNodeData.treeNodeType === TreeNodeType.DATABASE || treeNodeData.treeNodeType === TreeNodeType.SCHEMAS) {
+      requestPreloadTreeTables({
+        dataSourceId: treeNodeData.extraParams!.dataSourceId,
+        dataSourceName: treeNodeData.extraParams!.dataSourceName,
+        databaseType: treeNodeData.extraParams!.databaseType,
+        databaseName: treeNodeData.extraParams?.databaseName,
+        schemaName: treeNodeData.treeNodeType === TreeNodeType.SCHEMAS ? treeNodeData.extraParams?.schemaName : undefined,
+      });
+    }
   };
 
   // 双击节点

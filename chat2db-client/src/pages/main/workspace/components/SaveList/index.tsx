@@ -10,6 +10,8 @@ import styles from './index.less';
 import { approximateList } from '@/utils';
 import { addWorkspaceTab, getSavedConsoleList } from '@/pages/main/workspace/store/console';
 import { useWorkspaceStore } from '@/pages/main/workspace/store';
+import { requestPreloadTreeTables, setCurrentConnectionDetails } from '@/pages/main/workspace/store/common';
+import { useConnectionStore } from '@/pages/main/store/connection';
 import MenuLabel from '@/components/MenuLabel';
 
 const parseSelectedTables = (selectedTables?: string | null) => {
@@ -31,6 +33,7 @@ const SaveList = () => {
   const leftModuleTitleRef = useRef<any>(null);
   const saveBoxListRef = useRef<any>(null);
   const consoleList = useWorkspaceStore((state) => state.savedConsoleList);
+  const connectionList = useConnectionStore((state) => state.connectionList);
   const [editData, setEditData] = useState<any>(null);
 
   useEffect(() => {
@@ -68,6 +71,19 @@ const SaveList = () => {
       tabOpened: ConsoleOpenedStatus.IS_OPEN,
     };
     historyServer.updateSavedConsole(params).then(() => {
+      const connection = connectionList?.find((t) => t.id === item.dataSourceId);
+      if (connection) {
+        setCurrentConnectionDetails(connection);
+      }
+      if (item.dataSourceId && item.type) {
+        requestPreloadTreeTables({
+          dataSourceId: item.dataSourceId,
+          dataSourceName: item.dataSourceName,
+          databaseType: item.type,
+          databaseName: item.databaseName,
+          schemaName: item.schemaName,
+        });
+      }
       addWorkspaceTab({
         id: item.id,
         type: item.operationType,
